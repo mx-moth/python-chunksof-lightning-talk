@@ -1,0 +1,416 @@
+section.slide.slide__title
+	h1
+		| <code>chunksof()</code> <br>
+		| The story of a generator
+	h2 With a brief interlude into dunder methods, itertools pitfalls, and the Python garbage collector
+
+
+section.slide.slide__big
+	header.slide--header: h1 Goal
+	.slide--body
+		p A generator that breaks an iterable up into chunks of <code>n</code> items
+		pre.code-block.highlight.python
+			| my_iterable = range(100)
+			| for chunk in chunksof(7, my_iterable):
+			|     print("Got a chunk!")
+			|     for item in chunk:
+			|         print(f"Item {item}")
+
+
+section.slide.slide__big
+	header.slide--header: h1 Prior art
+	.slide--body
+		p.bullet Numerous questions and answers on Stack Overflow
+		p.bullet Various levels of correct or completely wrong
+		p.bullet Lets over-engineer a proper solution!
+
+
+section.slide
+	header.slide--header: h1 First attempt
+	.slide--body
+		pre.code-block.highlight.python
+			| def chunksof(n, iterable):
+			|     for i in range(len(iterable), step=n):
+			|         yield iterable[i:i + n]
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ Works on lists, strings, etc
+		p.bullet ❌ Does not work on generators
+		p.bullet ❌ Not fancy enough
+
+
+section.slide.slide__big
+	header.slide--header: h1 Fancy function
+	.slide--body
+		p.bullet
+			| <code>itertools.islice()</code> will return a generator
+			that will yield <code>n</code> items from the original generator
+		p.bullet The original iterator can then be consumed to get the rest of the items
+
+
+section.slide
+	header.slide--header: h1 Attempt the second
+	.slide--body
+		pre.code-block.highlight.python
+			| from itertools import islice
+			|
+			| def chunksof(n, iterable):
+			|     iterable = iter(iterable)
+			|     while True:
+			|         yield islice(iterable, n)
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ It groups things
+		p.bullet ✅ Works on lists and generators
+		p.bullet ❌ Not fancy enough
+		p.bullet ❌ Never terminates
+		p.bullet ❌ Enters an infinite loop
+		p.bullet ❌ Enters an infinite loop
+		p.bullet ❌ Enters an infinite loop
+		p.bullet ❌ Enters an infinite loop
+
+
+section.slide.slide__big
+	header.slide--header: h1 Problem
+	.slide--body
+		p.bullet
+			| <code>islice()</code> will return an empty iterator
+			| if it slices an empty iterator
+		p.bullet There is no built-in way to check if an arbitrary iterator is empty
+
+
+section.slide
+	header.slide--header: h1 Attempt #3: The Dark Chunkof Rises
+	.slide--body
+		pre.code-block.highlight.python
+			| from itertools import islice, tee
+			| from contextlib import suppress
+			|
+			| def isempty(iterable):
+			|     iterable, lookahead = tee(iterable)
+			|     empty = True
+			|     with suppress(StopIteration):
+			|         next(lookahead)
+			|         empty = False
+			|     return empty, iterable
+			|
+			| def chunksof(n, iterable):
+			|     iterable = iter(iterable)
+			|     while True:
+			|         empty, iterable = isempty(iterable)
+			|         if empty:
+			|             return
+			|         yield islice(iterable, n)
+
+
+section.slide.slide__big
+	header.slide--header: h1 Fancy function
+	.slide--body
+		p
+			| <code>contextlib.suppress()</code> will ignore specific types of errors.
+		pre.code-block.highlight.python
+			| try:
+			|     do_a_thing(1, True, "foo")
+			| except SomeException:
+			|     pass
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ It groups things
+		p.bullet ✅ Works on lists and generators
+		p.bullet ✅ Terminates
+		p.bullet ❌ Not fancy enough
+		p.bullet ❌ Does not allow garbage collection of items that have been consumed
+
+
+section.slide.slide__big
+	header.slide--header: h1 Problem
+	.slide--body
+		p.bullet
+			| <code>tee()</code> will keep around references to items
+			| until both iterators have consumed them.
+		p.bullet The <code>lookahead</code> iterator is never fully consumed.
+		p.bullet A <code>tee()</code> sub-iterator can not be closed.
+
+
+section.slide.slide__big
+	header.slide--header: h1 Garbage collection
+	.slide--body
+		p.bullet Specifics are an implementation detail
+		p.bullet Works differently on CPython and PyPy
+		p.bullet Reference counting and generational cyclic garbage collection in CPython
+		p.bullet Objects deleted from memory when nothing references them anymore
+		p.bullet <code>__del__</code> called when objects deleted
+
+
+section.slide
+	header.slide--header: h1 Debugging tool
+	.slide--body
+		pre.code-block.highlight.python
+			| class VerboseWrapper:
+			|     def __init__(self, i):
+			|         print("Just made", i)
+			|         self.i = i
+			|
+			|     def __str__(self):
+			|         return str(self.i)
+			|
+			|     def __repr__(self):
+			|         return repr(self.i)
+			|
+			|     def __eq__(self, other):
+			|         return self.i == other
+			|
+			|     def __del__(self):
+			|         print("Deleting", self.i)
+
+
+section.slide
+	header.slide--header: h1 Attempt IV – A New Hope
+	.slide--body
+		pre.code-block.highlight.python
+			| from itertools import islice, chain
+			|
+			| def isempty(iterable):
+			|     try:
+			|         item = next(iterable)
+			|         return False, chain([item], iterable)
+			|     except StopIteration:
+			|         return True, iterable
+			|
+			| def chunksof(n, iterable):
+			|     iterable = iter(iterable)
+			|     while True:
+			|         empty, iterable = isempty(iterable)
+			|         if empty:
+			|             return
+			|         yield islice(iterable, n)
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ It groups things
+		p.bullet ✅ Works on lists and generators
+		p.bullet ✅ Terminates
+		p.bullet ❌ Not fancy enough
+		p.bullet ❌ Does not allow garbage collection of the lookahead item
+
+
+section.slide.slide__big
+	header.slide--header: h1 Problem
+	.slide--body
+		p.bullet
+			| <code>chain()</code> does not remove references to iterators
+			| it has already consumed.
+		p.bullet The list <code>[item]</code> retains a reference to the item
+		p.bullet <code>item</code> is not released
+
+
+section.slide
+	header.slide--header: h1 Remember, remember, the Fifth of <code>chunksof</code>-ember
+	.slide--body
+		pre.code-block.highlight.python
+			| from itertools import islice, chain
+			|
+			| def yieldone(item):
+			|     yield item
+			|
+			| def isempty(iterable):
+			|     try:
+			|         head = yieldone(next(iterable))
+			|         return False, chain(head, iterable)
+			|     except StopIteration:
+			|         return True, iterable
+			|
+			| def chunksof(n, iterable):
+			|     iterable = iter(iterable)
+			|     while True:
+			|         empty, iterable = isempty(iterable)
+			|         if empty:
+			|             return
+			|         yield islice(iterable, n)
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ It groups things
+		p.bullet ✅ Works on lists and generators
+		p.bullet ✅ Terminates
+		p.bullet ✅ All consumed items can be garbage collected
+		p.bullet ❌ Not fancy enough
+		p.bullet ❌ Does not allow out-of-order consumption of chunks
+
+
+section.slide.slide__big
+	header.slide--header: h1 Problem
+	.slide--body
+		p.bullet
+			| If you generate one chunk, keep it around,
+			| and then iterate over the next chunk,
+			| items will be yielded out of order.
+
+
+mixin code_bullet(lang)
+	pre.bullet.highlight.dockerfile.code-block(class=lang + ' ' + (attributes.class || 'code-block__middle'))
+		block
+
+section.slide
+	header.slide--header: h1 Problem
+	.slide--body
+		+code_bullet('python').code-block__top
+			| >>> my_iterable = range(10)
+			| >>> print(my_iterable)
+			| [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+		+code_bullet('python')
+			| >>> chunks = chunksof(7, my_iterable)
+		+code_bullet('python')
+			| >>> first = next(chunks)
+			| >>> second = next(chunks)
+		+code_bullet('python')
+			| >>> next(first)
+			| 1  # This seems wrong
+		+code_bullet('python')
+			| >>> next(second)
+			| 0  # Wait what?
+		+code_bullet('python').code-block__bottom
+			| >>> next(first)
+			| 2  # Yeah nah, this is a problem
+
+
+section.slide.slide__big
+	header.slide--header: h1 Aim
+	.slide--body
+		ul
+			li.bullet Works with iterators and lists
+			li.bullet Consumes the minimal number of items from the generator
+			li.bullet Nice garbage collection
+			li.bullet Allows out-of-order consumption of chunks
+			li.bullet Terminates
+			li.bullet Is fancy enough
+
+
+section.slide
+	header.slide--header: h1 Attempt number.... I lost count
+	.slide--body.autoscroll
+		pre.code-block.highlight.python
+			| from itertools import chain, islice
+			|
+			| def splitat(iterable, count):
+			|     """
+			|     Splits an iterable into a prefix and a suffix. The prefix
+			|     contains the first count items of the iterable, while suffix
+			|     contains the rest, if any. If the iterable has less than
+			|     count element, the prefix will be shorter than count
+			|     elements.
+			|     """
+			|     return splitter(iterable, count).split()
+			|
+			| class splitter:
+			|     """Helper class for splitat."""
+			|     def __init__(self, iterable, count):
+			|         self.iterator = iter(iterable)
+			|         self.count = count
+			|         self.queue = []
+			|
+			|     def split(self):
+			|         return self.prefix(), self.suffix()
+			|
+			|     def prefix(self):
+			|         while self.count or self.queue:
+			|             # If there are items in the queue, then the suffix
+			|             # has been accessed before the prefix was consumed.
+			|             # Yield the remaining items from the queue and then
+			|             # clean up.
+			|             if self.queue:
+			|                 queue = self.queue
+			|
+			|                 # Consume the queue, poping items off the stack
+			|                 # so they can be garbage collected as they are
+			|                 # consumed.
+			|                 while queue:
+			|                     yield queue.pop(0)
+			|                 del queue
+			|                 del self.queue
+			|                 # Finish up, the prefix has been exhausted.
+			|                 return
+			|
+			|             # If the queue is empty, consume from the iterator as
+			|             # normal
+			|             try:
+			|                 self.count -= 1
+			|                 yield next(self.iterator)
+			|             except StopIteration:
+			|                 return
+			|
+			|     def suffix(self):
+			|         # If the whole prefix has not been consumed yet, queue up
+			|         # the remaining items for the prefix to yield later.
+			|         if self.count:
+			|             self.queue = list(islice(self.iterator, self.count))
+			|
+			|         # Yield the remaining items from the iterator. Can't just
+			|         # return the iterator here, as that would eagerly consume
+			|         # the prefix.
+			|         yield from self.iterator
+			|
+			|
+			| def yieldone(item):
+			|     yield item
+			|
+			|
+			| def isempty(iterable):
+			|     try:
+			|         head = yieldone(next(iterable))
+			|         return False, chain(head, iterable)
+			|     except StopIteration:
+			|         return True, iterable
+			|
+			|
+			| def chunksof(iterable, n):
+			|     iterator = iter(iterable)
+			|     while True:
+			|         # Quit if the iterator is empty
+			|         empty, iterator = isempty(iterator)
+			|         if empty:
+			|             return
+			|
+			|         # Split the iterator and yield a chunk
+			|         chunk, iterator = splitat(iterator, n)
+			|         yield chunk
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ It groups things
+		p.bullet ✅ Works on lists and generators
+		p.bullet ✅ Terminates
+		p.bullet ✅ All items can be garbage collected
+		p.bullet ✅ Minimal look-ahead used
+		p.bullet ✅ Allows out of order consumption
+
+
+section.slide.slide__big
+	header.slide--header: h1 Results
+	.slide--body
+		p.bullet ✅ Over engineered
+		p.bullet ✅ No known issues!
+		p.bullet 🤷 ...yet
+		p.bullet
+			i.fab.fa-github
+			=" "
+			a(href="https://gist.github.com/timheap/4e283fea7143e64852dcc09b14a183f7")
+				| gist.github.com/timheap
+				| <code>chunksof.py</code>
+
+// vim: syntax=jade
